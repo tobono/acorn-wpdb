@@ -1,0 +1,35 @@
+{
+  "name": "tobono/acorn-wpdb",
+  "type": "package",
+  "license": "MIT",
+  "description": "WPDB driver for acorn.",
+  "authors": [
+    {
+      "name": "Reza Bahreynipour",
+      "email": "bahreynipour@gmail.com"
+    }
+  ],
+  "keywords": [
+    "wordpress",
+    "sage",
+    "acorn",
+    "laravel",
+    "eloquent",
+    "wpdb"
+  ],
+  "autoload": {
+    "psr-4": {
+      "Tobono\\WPDB\\": "src/"
+    }
+  },
+  "require": {
+    "php": ">=8.0"
+  },
+  "extra": {
+    "acorn": {
+      "providers": [
+        "Tobono\\WPDB\\WPDBServiceProvider"
+      ]
+    }
+  }
+}
