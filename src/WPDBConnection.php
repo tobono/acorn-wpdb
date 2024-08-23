@@ -8,7 +8,9 @@ use Generator;
 use Illuminate\Database\Connection;
 use Illuminate\Database\ConnectionInterface;
 use Illuminate\Database\Grammar;
+use Illuminate\Database\Schema\Grammars\MySqlGrammar as SchemaGrammar;
 use Illuminate\Database\Query\Grammars\MySqlGrammar as QueryGrammar;
+use Illuminate\Database\Schema\MySqlBuilder;
 use InvalidArgumentException;
 use LogicException;
 use wpdb;
@@ -58,10 +60,37 @@ class WPDBConnection extends Connection implements ConnectionInterface {
     /**
      * Get the default query grammar instance.
      *
+     * @return Grammar|\Illuminate\Database\Query\Grammars\MySqlGrammar
+     */
+    protected function getDefaultQueryGrammar()
+    {
+        return $this->withTablePrefix(new QueryGrammar());
+    }
+
+    /**
+     * Get a schema builder instance for the connection.
+     *
+     * @return \Illuminate\Database\Schema\MySqlBuilder
+     */
+    public function getSchemaBuilder()
+    {
+        if (is_null($this->schemaGrammar)) {
+            $this->useDefaultSchemaGrammar();
+        }
+
+        return new MySqlBuilder($this);
+    }
+
+    /**
+     * Get the default schema grammar instance.
+     *
      * @return Grammar
      */
-    protected function getDefaultQueryGrammar(): Grammar {
-        return $this->withTablePrefix( new QueryGrammar() );
+    protected function getDefaultSchemaGrammar()
+    {
+        ($grammar = new SchemaGrammar)->setConnection($this);
+
+        return $this->withTablePrefix($grammar);
     }
 
     /**

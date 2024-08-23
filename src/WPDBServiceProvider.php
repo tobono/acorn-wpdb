@@ -2,6 +2,7 @@
 
 namespace Tobono\WPDB;
 
+use Illuminate\Database\DatabaseManager;
 use Illuminate\Support\ServiceProvider as ServiceProviderT;
 
 class WPDBServiceProvider extends ServiceProviderT
@@ -11,16 +12,21 @@ class WPDBServiceProvider extends ServiceProviderT
      *
      * @return void
      */
-    public function register()
+    public function register(): void
     {
-        $this->app->bind('db.connector.wpdb', function () {
-            return new WPDBConnector();
-        });
+        $this->app->bind('db.connector.wpdb', WPDBConnector::class);
 
-        $this->app['db']->extend('wpdb', function (array $config) {
-            $adapter = $this->app['db.connector.wpdb']->connect($config);
+        $this->app->resolving('db', function (DatabaseManager $db) {
+            $db->extend('wpdb', function (array $config, string $name): WPDBConnection {
+                $config['name'] = $name;
 
-            return new WPDBConnection($adapter, $config['database'], $config['prefix'], $config);
+                return new WPDBConnection(
+                    $this->app['db.connector.wpdb']->connect($config),
+                    $config['database'],
+                    $config['prefix'],
+                    $config
+                );
+            });
         });
     }
 }
