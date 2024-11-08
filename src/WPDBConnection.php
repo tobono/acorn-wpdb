@@ -8,6 +8,7 @@ use Generator;
 use Illuminate\Database\Connection;
 use Illuminate\Database\ConnectionInterface;
 use Illuminate\Database\Grammar;
+use Illuminate\Database\Query\Processors\MySqlProcessor;
 use Illuminate\Database\Schema\Grammars\MySqlGrammar as SchemaGrammar;
 use Illuminate\Database\Query\Grammars\MySqlGrammar as QueryGrammar;
 use Illuminate\Database\Schema\MySqlBuilder;
@@ -65,6 +66,11 @@ class WPDBConnection extends Connection implements ConnectionInterface {
     protected function getDefaultQueryGrammar()
     {
         return $this->withTablePrefix(new QueryGrammar());
+    }
+
+    protected function getDefaultPostProcessor()
+    {
+        return new WPDBProcessor();
     }
 
     /**
@@ -274,7 +280,21 @@ class WPDBConnection extends Connection implements ConnectionInterface {
      * @return wpdb
      */
     public function getWPDB(): WPDB {
+        if ($this->wpdb instanceof Closure) {
+            return $this->wpdb = call_user_func($this->wpdb);
+        }
+
         return $this->wpdb;
+    }
+
+    /**
+     * Get the current PDO connection.
+     *
+     * @return \wpdb
+     */
+    public function getPdo()
+    {
+        return $this->getWPDB();
     }
 
     /**
