@@ -5,18 +5,23 @@ namespace Tobono\WPDB;
 use Closure;
 use DateTimeInterface;
 use Generator;
+use Illuminate\Database\Concerns\ManagesTransactions;
 use Illuminate\Database\Connection;
 use Illuminate\Database\ConnectionInterface;
 use Illuminate\Database\Grammar;
-use Illuminate\Database\Query\Processors\MySqlProcessor;
 use Illuminate\Database\Schema\Grammars\MySqlGrammar as SchemaGrammar;
 use Illuminate\Database\Query\Grammars\MySqlGrammar as QueryGrammar;
 use Illuminate\Database\Schema\MySqlBuilder;
 use InvalidArgumentException;
 use LogicException;
+use RuntimeException;
 use wpdb;
 
 class WPDBConnection extends Connection implements ConnectionInterface {
+
+    use ManagesTransactions;
+
+    protected WPDBPdoCompat $pdoCompat;
 
     /**
      * The active WPDB connection.
@@ -30,7 +35,7 @@ class WPDBConnection extends Connection implements ConnectionInterface {
     /**
      * @var array
      */
-    protected $mysqlEscapeChars = [
+    protected const MYSQL_ESCAPE_CHARS = [
         "\x00" => "\\0",
         "\r"   => "\\r",
         "\n"   => "\\n",
@@ -39,7 +44,6 @@ class WPDBConnection extends Connection implements ConnectionInterface {
         '"'    => '\"',
         "\\"   => "\\\\",
         "\0"   => '\\0',
-
     ];
 
     /**
@@ -52,10 +56,10 @@ class WPDBConnection extends Connection implements ConnectionInterface {
      *
      * @return void
      */
-    public function __construct( $wpdb, $database = '', $tablePrefix = '', array $config = [] ) {
+    public function __construct($wpdb, $database = '', $tablePrefix = '', array $config = [])
+    {
         $this->wpdb = $wpdb;
-
-        parent::__construct( $wpdb, $database, $tablePrefix, $config );
+        parent::__construct($wpdb, $database, $tablePrefix, $config);
     }
 
     /**
@@ -83,7 +87,6 @@ class WPDBConnection extends Connection implements ConnectionInterface {
         if (is_null($this->schemaGrammar)) {
             $this->useDefaultSchemaGrammar();
         }
-
         return new MySqlBuilder($this);
     }
 
@@ -94,8 +97,8 @@ class WPDBConnection extends Connection implements ConnectionInterface {
      */
     protected function getDefaultSchemaGrammar()
     {
-        ($grammar = new SchemaGrammar)->setConnection($this);
-
+        $grammar = new SchemaGrammar();
+        $grammar->setConnection($this);
         return $this->withTablePrefix($grammar);
     }
 
@@ -108,10 +111,10 @@ class WPDBConnection extends Connection implements ConnectionInterface {
      *
      * @return mixed
      */
-    public function selectOne( $query, $bindings = [], $useRead = true ) {
-        $records = $this->select( $query, $bindings, $useRead );
-
-        return array_shift( $records );
+    public function selectOne($query, $bindings = [], $useRead = true)
+    {
+        $records = $this->select($query, $bindings, $useRead);
+        return array_shift($records);
     }
 
     /**
@@ -122,8 +125,9 @@ class WPDBConnection extends Connection implements ConnectionInterface {
      *
      * @return array
      */
-    public function selectFromWriteConnection( $query, $bindings = [] ) {
-        return $this->select( $query, $bindings, false );
+    public function selectFromWriteConnection($query, $bindings = [])
+    {
+        return $this->select($query, $bindings, false);
     }
 
     /**
@@ -135,21 +139,17 @@ class WPDBConnection extends Connection implements ConnectionInterface {
      *
      * @return array
      */
-    public function select( $query, $bindings = [], $useReadPdo = true ) {
-        return $this->run( $query, $bindings, function ( $query, $bindings ) use ( $useReadPdo ) {
-            if ( $this->pretending() ) {
+    public function select($query, $bindings = [], $useReadPdo = true)
+    {
+        return $this->run($query, $bindings, function ($query, $bindings) use ($useReadPdo) {
+            if ($this->pretending()) {
                 return [];
             }
 
-            $query = $this->buildSql( $query, $this->prepareBindings( $bindings ) );
-
-            $statement = $this->getWPDB();
-
-            return $statement->get_results( $query, $this->fetchMode );
-
-        } );
+            $query = $this->buildSql($query, $this->prepareBindings($bindings));
+            return $this->getWPDB()->get_results($query, $this->fetchMode);
+        });
     }
-
 
     /**
      * Run a select statement against the database and returns a generator.
@@ -160,20 +160,11 @@ class WPDBConnection extends Connection implements ConnectionInterface {
      *
      * @return Generator
      */
-    public function cursor( $query, $bindings = [], $useReadPdo = true ) {
-        $results = $this->run( $query, $bindings, function ( $query, $bindings ) use ( $useReadPdo ) {
-            if ( $this->pretending() ) {
-                return [];
-            }
+    public function cursor($query, $bindings = [], $useReadPdo = true)
+    {
+        $results = $this->select($query, $bindings, $useReadPdo);
 
-            $query = $this->buildSql( $query, $this->prepareBindings( $bindings ) );
-
-            $statement = $this->getWPDB();
-
-            return $statement->get_results( $query, $this->fetchMode );
-        } );
-
-        foreach ( $results as $record ) {
+        foreach ($results as $record) {
             yield $record;
         }
     }
@@ -186,18 +177,16 @@ class WPDBConnection extends Connection implements ConnectionInterface {
      *
      * @return bool
      */
-    public function statement( $query, $bindings = [] ) {
-        return $this->run( $query, $bindings, function ( $query, $bindings ) {
-            if ( $this->pretending() ) {
+    public function statement($query, $bindings = [])
+    {
+        return $this->run($query, $bindings, function ($query, $bindings) {
+            if ($this->pretending()) {
                 return true;
             }
 
-            $query = $this->buildSql( $query, $this->prepareBindings( $bindings ) );
-
-            $statement = $this->getWPDB();
-
-            return $statement->query( $query );
-        } );
+            $query = $this->buildSql($query, $this->prepareBindings($bindings));
+            return $this->getWPDB()->query($query);
+        });
     }
 
     /**
@@ -208,20 +197,19 @@ class WPDBConnection extends Connection implements ConnectionInterface {
      *
      * @return int
      */
-    public function affectingStatement( $query, $bindings = [] ) {
-        return $this->run( $query, $bindings, function ( $query, $bindings ) {
-            if ( $this->pretending() ) {
+    public function affectingStatement($query, $bindings = [])
+    {
+        return $this->run($query, $bindings, function ($query, $bindings) {
+            if ($this->pretending()) {
                 return 0;
             }
 
-            $query = $this->buildSql( $query, $this->prepareBindings( $bindings ) );
+            $query = $this->buildSql($query, $this->prepareBindings($bindings));
+            $wpdb = $this->getWPDB();
+            $wpdb->query($query);
 
-            $statement = $this->getWPDB();
-
-            $statement->query( $query );
-
-            return $statement->num_rows;
-        } );
+            return $wpdb->rows_affected;
+        });
     }
 
     /**
@@ -231,14 +219,15 @@ class WPDBConnection extends Connection implements ConnectionInterface {
      *
      * @return bool
      */
-    public function unprepared( $query ) {
-        return $this->run( $query, [], function ( $query ) {
-            if ( $this->pretending() ) {
+    public function unprepared($query)
+    {
+        return $this->run($query, [], function ($query) {
+            if ($this->pretending()) {
                 return true;
             }
 
-            return (bool) $this->getWPDB()->query( $query );
-        } );
+            return (bool) $this->getWPDB()->query($query);
+        });
     }
 
     /**
@@ -248,17 +237,15 @@ class WPDBConnection extends Connection implements ConnectionInterface {
      *
      * @return array
      */
-    public function prepareBindings( array $bindings ) {
+    public function prepareBindings(array $bindings)
+    {
         $grammar = $this->getQueryGrammar();
 
-        foreach ( $bindings as $key => $value ) {
-            // We need to transform all instances of DateTimeInterface into the actual
-            // date string. Each query grammar maintains its own date string format
-            // so we'll just ask the grammar for the format to get from the date.
-            if ( $value instanceof DateTimeInterface ) {
-                $bindings[ $key ] = $value->format( $grammar->getDateFormat() );
-            } elseif ( $value === false ) {
-                $bindings[ $key ] = 0;
+        foreach ($bindings as $key => $value) {
+            if ($value instanceof DateTimeInterface) {
+                $bindings[$key] = $value->format($grammar->getDateFormat());
+            } elseif ($value === false) {
+                $bindings[$key] = 0;
             }
         }
 
@@ -270,7 +257,8 @@ class WPDBConnection extends Connection implements ConnectionInterface {
      *
      * @return bool
      */
-    public function isDoctrineAvailable() {
+    public function isDoctrineAvailable()
+    {
         return false;
     }
 
@@ -278,10 +266,16 @@ class WPDBConnection extends Connection implements ConnectionInterface {
      * Get the current WPDB connection.
      *
      * @return wpdb
+     * @throws RuntimeException
      */
-    public function getWPDB(): WPDB {
+    public function getWPDB(): wpdb
+    {
         if ($this->wpdb instanceof Closure) {
-            return $this->wpdb = call_user_func($this->wpdb);
+            $this->wpdb = call_user_func($this->wpdb);
+        }
+
+        if ( !( $this->wpdb instanceof wpdb) ) {
+            throw new RuntimeException('Invalid WPDB connection');
         }
 
         return $this->wpdb;
@@ -290,149 +284,198 @@ class WPDBConnection extends Connection implements ConnectionInterface {
     /**
      * Get the current PDO connection.
      *
-     * @return \wpdb
+     * @return WPDBPdoCompat
      */
-    public function getPdo()
+    public function getPdo(): WPDBPdoCompat
     {
-        return $this->getWPDB();
+        if (!isset($this->pdoCompat)) {
+            $this->pdoCompat = new WPDBPdoCompat($this->getWPDB());
+        }
+        if ($this->transactions > 0 && !$this->pdoCompat->inTransaction()) {
+            // Something went wrong with transaction state
+            $this->transactions = 0;
+            throw new LogicException('Transaction state mismatch detected');
+        }
+        return $this->pdoCompat;
     }
 
     /**
      * @param mixed $value
-     *
      * @return string
+     * @throws InvalidArgumentException
      */
-    protected function getMySqliBindType( $value ) {
-        // Check if value is an expression
-        if ( is_callable( $value ) ) {
+    protected function getMySqliBindType($value): string
+    {
+        if (is_resource($value)) {
+            throw new InvalidArgumentException('Resources cannot be bound as parameters');
+        }
+
+        if (is_callable($value)) {
             return '%s';
         }
 
-        return match ( gettype( $value ) ) {
+        return match (gettype($value)) {
             'double' => '%f',
             'boolean', 'integer' => '%d',
-            default => '%s'
+            'string', 'NULL' => '%s',
+            default => throw new InvalidArgumentException('Unsupported parameter type: ' . gettype($value))
         };
-    }
-
-    public function escape( $value, $binary = false ) {
-        return strtr( $value, $this->mysqlEscapeChars );
     }
 
     /**
      * @param mixed $value
-     * @param string $type
+     * @param bool $binary
+     * @return string
+     * @throws InvalidArgumentException
+     */
+    public function escape($value, $binary = false): string
+    {
+        if (!is_scalar($value) && !is_null($value)) {
+            throw new InvalidArgumentException('Cannot escape non-scalar values');
+        }
+
+        if ($value === null) {
+            return 'NULL';
+        }
+
+        $value = (string)$value;
+        return $binary ? addslashes($value) : strtr($value, self::MYSQL_ESCAPE_CHARS);
+    }
+
+    /**
+     * @param mixed $value
+     * @param string|null $type
      *
      * @return string
      */
-    protected function quote( $value, $type = null ) {
-        // Check if value is an expression
-        if ( is_callable( $value ) ) {
-            return $value( $this );
+    protected function quote($value, $type = null)
+    {
+        // Handle null first
+        if ($value === null) {
+            return 'NULL';
         }
 
-        if ( ! $type ) {
-            $type = gettype( $value );
+        if (is_callable($value)) {
+            return $value($this);
         }
 
-        switch ( $type ) {
+        $type ??= gettype($value);
 
+        switch ($type) {
             case 'boolean':
-                $value = (int) $value;
-                break;
+                return (string)(int)$value;
 
             case 'double':
             case 'integer':
-                break;
+                return (string)$value;
 
             case 'string':
-                if ( $this->isBinary( $value ) ) {
-                    $value = "'" . addslashes( $value ) . "'";
-                } else {
-                    $value = "'" . $this->escape( $value ) . "'";
-                }
-                break;
+                return $this->isBinary($value)
+                    ? "'" . addslashes($value) . "'"
+                    : "'" . $this->escape($value) . "'";
 
             case 'array':
-                $nvalue = [];
-                foreach ( $value as $v ) {
-                    $nvalue[] = $this->quote( $v );
-                }
-                $value = implode( ',', $nvalue );
-                break;
+                return implode(',', array_map(fn($v) => $this->quote($v), $value));
 
+            case null:
             case 'NULL':
-                $value = 'NULL';
-                break;
+                return 'NULL';
 
             case 'object':
-                if ( $value instanceof Closure ) {
-                    return $value( $this );
+                if ($value instanceof Closure) {
+                    return $value($this);
                 }
-                break;
+            // Intentional fallthrough
 
             default:
-                throw new InvalidArgumentException( sprintf( 'Not supportted value type of %s.', $type ) );
-                break;
+                throw new InvalidArgumentException(
+                    sprintf('Not supported value type of %s.', $type)
+                );
         }
-
-        return $value;
     }
 
-    protected function quoteColumn( $str ) {
-        return '`' . $str . '`';
+    protected function quoteColumn($str)
+    {
+        return "`{$str}`";
     }
 
-    protected function buildSql( $sql, $params = [] ) {
-        if ( empty( $params ) || empty( $sql ) ) {
+    protected function buildSql($sql, $params = [])
+    {
+        if (empty($params) || empty($sql)) {
             return $sql;
         }
 
-        $builtSql = $sql;
+        return $this->isAssoc($params)
+            ? $this->buildNamedParameterSql($sql, $params)
+            : $this->buildPositionalParameterSql($sql, $params);
+    }
 
-        if ( $this->isAssoc( $params ) ) {
-
-            // We bind template variable placeholders like ":param1"
-            $trans = [];
-
-            foreach ( $params as $key => $value ) {
-                $trans[ $key ] = $this->quote( $value );
-                //$builtSql = str_replace($key, $replacement, $builtSql);
-            }
-
-            return strtr( $builtSql, $trans );
-        } else {
-
-            // We bind question mark \"?\" placeholders
-            $offset = strpos( $builtSql, '?' );
-
-            foreach ( $params as $i => $param ) {
-
-                if ( $offset === false ) {
-                    throw new LogicException( "Param $i has no matching question mark \"?\" placeholder in specified SQL query." );
-                }
-
-                $replacement = $this->quote( $param );
-                $builtSql    = substr_replace( $builtSql, $replacement, $offset, 1 );
-                $offset      = strpos( $builtSql, '?', $offset + strlen( $replacement ) );
-            }
-
-            if ( $offset !== false ) {
-                throw new LogicException( 'Not enough parameter bound to SQL query' );
-            }
-
+    /**
+     * Build SQL with named parameters
+     *
+     * @param string $sql
+     * @param array $params
+     * @return string
+     * @throws InvalidArgumentException
+     */
+    protected function buildNamedParameterSql($sql, $params)
+    {
+        if (!is_string($sql)) {
+            throw new InvalidArgumentException('SQL query must be a string');
+        }
+        if (!is_array($params)) {
+            throw new InvalidArgumentException('Parameters must be an array');
         }
 
-        return $builtSql;
+        $translations = [];
+        foreach ($params as $key => $value) {
+            if (!is_string($key)) {
+                throw new InvalidArgumentException('Parameter keys must be strings');
+            }
+            $translations[$key] = $this->quote($value);
+        }
+        return strtr($sql, $translations);
     }
 
-    protected function isBinary( $str ): bool {
-        return preg_match( '~[^\x20-\x7E\t\r\n]~', $str ) > 0;
+    /**
+     * Build SQL with positional parameters
+     *
+     * @param string $sql
+     * @param array $params
+     * @return string
+     */
+    protected function buildPositionalParameterSql($sql, $params)
+    {
+        $offset = strpos($sql, '?');
+        foreach ($params as $i => $param) {
+            if ($offset === false) {
+                throw new LogicException(
+                    "Param {$i} has no matching question mark \"?\" placeholder in specified SQL query."
+                );
+            }
+
+            $replacement = $this->quote($param);
+            $sql = substr_replace($sql, $replacement, $offset, 1);
+            $offset = strpos($sql, '?', $offset + strlen($replacement));
+        }
+
+        if ($offset !== false) {
+            throw new LogicException('Not enough parameters bound to SQL query');
+        }
+
+        return $sql;
     }
 
-    protected function isAssoc( array $arr ): bool {
-        $keys = array_keys( $arr );
+    protected function isBinary($str): bool
+    {
+        return preg_match('~[^\x20-\x7E\t\r\n]~', $str) > 0;
+    }
 
-        return array_keys( $keys ) !== $keys;
+    protected function isAssoc(array $arr): bool
+    {
+        if (empty($arr)) {
+            return false;
+        }
+        return array_keys($arr) !== range(0, count($arr) - 1);
     }
 }
