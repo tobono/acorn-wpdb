@@ -69,7 +69,7 @@ class WPDBConnection extends Connection implements ConnectionInterface {
      */
     protected function getDefaultQueryGrammar()
     {
-        return $this->withTablePrefix(new QueryGrammar());
+        return new QueryGrammar($this);
     }
 
     protected function getDefaultPostProcessor()
@@ -93,13 +93,11 @@ class WPDBConnection extends Connection implements ConnectionInterface {
     /**
      * Get the default schema grammar instance.
      *
-     * @return Grammar
+     * @return \Illuminate\Database\Schema\Grammars\MySqlGrammar
      */
     protected function getDefaultSchemaGrammar()
     {
-        $grammar = new SchemaGrammar();
-        $grammar->setConnection($this);
-        return $this->withTablePrefix($grammar);
+        return new SchemaGrammar($this);
     }
 
     /**
