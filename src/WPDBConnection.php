@@ -101,6 +101,16 @@ class WPDBConnection extends Connection implements ConnectionInterface {
     }
 
     /**
+     * Determine if the connected database is a MariaDB database.
+     *
+     * @return bool
+     */
+    public function isMaria()
+    {
+        return true;
+    }
+
+    /**
      * Run a select statement and return a single result.
      *
      * @param string $query
