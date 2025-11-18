@@ -30,7 +30,7 @@ class WPDBConnection extends Connection implements ConnectionInterface {
      */
     protected $wpdb;
 
-    protected $fetchMode = ARRAY_A;
+    protected $fetchMode = OBJECT;
 
     /**
      * @var array
