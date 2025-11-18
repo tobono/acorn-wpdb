@@ -363,7 +363,9 @@ class WPDBConnection extends Connection implements ConnectionInterface {
             return 'NULL';
         }
 
-        if (is_callable($value)) {
+        // Only treat closures or invokable objects as callbacks.
+        // Avoid calling global functions like 'e' with the connection instance.
+        if ($value instanceof \Closure || (is_object($value) && is_callable($value))) {
             return $value($this);
         }
 
